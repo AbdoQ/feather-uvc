@@ -1,0 +1,179 @@
+phost->gState:
+1- HOST_DEV_WAIT_FOR_ATTACHMENT
+2- HOST_DEV_ATTACHED
+3- HOST_ENUMERATION
+
+phost->RequestState alternates between CMD_SEND and CMD_WAIT
+phost->Control.state: CTRL_SETUP, CTRL_SETUP_WAIT, CTRL_DATA_IN, CTRL_DATA_WAIT, CTRL_STATUS_OUT, CTRL_STATUS_OUT_WAIT, CTRL_STATUS_OUT, CTRL_STATUS_OUT_WAIT, CTRL_IDLE
+phost->Control.state: CTRL_SETUP, CTRL_SETUP_WAIT, 
+phost->EnumState: 
+
+
+Analyze why state remains in HOST_ENUMERATION state:
+USBH_HandleEnum(phost) always returns USBH_BUSY
+    USBH_Get_DevDesc(phost, 8U); returns USBH_BUSY
+        USBH_GetDescriptor(.); returns USHB_BUSY
+            USBH_CtlReq(.);
+                USBH_HandleControl(phost); returns USBH_BUSY
+                    USBH_CtlSendSetup(phost,..);
+                        USBH_LL_SubmitURB(..);
+                            HAL_HCD_HC_SubmitRequest(..) returns HAL_OK
+                            USBH_Get_USB_Status(..) returns USBH_OK
+                            
+=================================================================================================
+Follow USBH state from start of the program:
+
+hUsbHostFS:
+gState:         HOST_IDLE,              HOST_DEV_WAIT_FOR_ATTACHMENT,   HOST_DEV_ATTACHED,  HOST_ENUMERATION                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                HOST_SET_CONFIGURATION,                                 HOST_SET_WAKEUP_FEATURE,    HOST_CHECK_CLASS,   HOST_ABORT_STATE
+EnumState:      ENUM_IDLE,                                                                                                                                                                                                                                  ENUM_GET_FULL_DEV_DESC,                                                                                                                                                         ENUM_SET_ADDR,                                                                          ENUM_GET_CFG_DESC,                                                                                                                                                              ENUM_GET_FULL_CFG_DESC,                                 ENUM_GET_MFC_STRING_DESC,   ENUM_GET_PRODUCT_STRING_DESC,   ENUM_GET_SERIALNUM_STRING_DESC,                     
+RequestState:   CMD_IDLE,   CMD_SEND,                                                                           CMD_WAIT,                                                                                                                                   CMD_SEND,               CMD_WAIT,                                                                                                                                               CMD_SEND,       CMD_WAIT,                                                               CMD_SEND,           CMD_WAIT,                                                                                                                                                   CMD_SEND,               CMD_WAIT,                       CMD_SEND,                                                   CMD_WAIT,                                           CMD_SEND,               CMD_WAIT,                       CMD_SEND,
+Control.state:  CTRL_IDLE,  CTRL_SETUP,                                                                                     CTRL_SETUP_WAIT, CTRL_DATA_IN, CTRL_DATA_IN_WAIT, CTRL_STATUS_OUT, CTRL_STATUS_OUT_WAIT, CTRL_STATUS_OUT, CTRL_STATUS_OUT_WAIT, CTRL_IDLE,              CTRL_SETUP, CTRL_SETUP_WAIT, CTRL_DATA_IN,  CTRL_DATA_IN_WAIT,  CTRL_STATUS_OUT,    CTRL_STATUS_OUT_WAIT,   CTRL_STATUS_OUT,    CTRL_STATUS_OUT_WAIT,   CTRL_IDLE,      CTRL_SETUP, CTRL_SETUP_WAIT,    CTRL_STATUS_IN, CTRL_STATUS_IN_WAIT,    CTRL_IDLE,          CTRL_SETUP, CTRL_SETUP_WAIT,    CTRL_DATA_IN,   CTRL_DATA_IN_WAIT,  CTRL_STATUS_OUT,    CTRL_STATUS_OUT_WAIT,   CTRL_STATUS_OUT,    CTRL_STATUS_OUT_WAIT,   CTRL_IDLE,              CTRL_SETUP, (same sequence),    CTRL_IDLE,                                                  CTRL_SETUP,                     (same sequence),    CTRL_IDLE,              CTRL_SETUP, (same sequence),    CTRL_IDLE,
+
+
+static USBH_StatusTypeDef USBH_ParseCfgDesc(USBH_HandleTypeDef *phost, uint8_t *buf, uint16_t length)
+{
+  USBH_CfgDescTypeDef *cfg_desc = &phost->device.CfgDesc;
+  USBH_StatusTypeDef           status = USBH_OK;
+  USBH_InterfaceDescTypeDef    *pif ;
+  USBH_EpDescTypeDef           *pep;
+  USBH_DescHeader_t            *pdesc = (USBH_DescHeader_t *)(void *)buf;
+  uint16_t                     ptr;
+  uint8_t                      if_ix = 0U;
+  uint8_t                      ep_ix = 0U;
+
+  pdesc   = (USBH_DescHeader_t *)(void *)buf;
+
+  /* Parse configuration descriptor */
+  cfg_desc->bLength             = *(uint8_t *)(buf + 0);
+  cfg_desc->bDescriptorType     = *(uint8_t *)(buf + 1);
+  cfg_desc->wTotalLength        = MIN(((uint16_t) LE16(buf + 2)), ((uint16_t)USBH_MAX_SIZE_CONFIGURATION));
+  cfg_desc->bNumInterfaces      = *(uint8_t *)(buf + 4);
+  cfg_desc->bConfigurationValue = *(uint8_t *)(buf + 5);
+  cfg_desc->iConfiguration      = *(uint8_t *)(buf + 6);
+  cfg_desc->bmAttributes        = *(uint8_t *)(buf + 7);
+  cfg_desc->bMaxPower           = *(uint8_t *)(buf + 8);
+
+  /* Make sure that the Confguration descriptor's bLength is equal to USB_CONFIGURATION_DESC_SIZE */
+  if (cfg_desc->bLength  != USB_CONFIGURATION_DESC_SIZE)
+  {
+    cfg_desc->bLength = USB_CONFIGURATION_DESC_SIZE;
+  }
+
+  if (length > USB_CONFIGURATION_DESC_SIZE)
+  {
+    ptr = USB_LEN_CFG_DESC;
+    pif = (USBH_InterfaceDescTypeDef *)NULL;
+
+    while ((if_ix < USBH_MAX_NUM_INTERFACES) && (ptr < cfg_desc->wTotalLength))
+    {
+      pdesc = USBH_GetNextDesc((uint8_t *)(void *)pdesc, &ptr);
+      if (pdesc->bDescriptorType == USB_DESC_TYPE_INTERFACE)
+      {
+        /* Make sure that the interface descriptor's bLength is equal to USB_INTERFACE_DESC_SIZE */
+        if (pdesc->bLength != USB_INTERFACE_DESC_SIZE)
+        {
+          pdesc->bLength = USB_INTERFACE_DESC_SIZE;
+        }
+
+        pif = &cfg_desc->Itf_Desc[if_ix];
+        USBH_ParseInterfaceDesc(pif, (uint8_t *)(void *)pdesc);
+
+        ep_ix = 0U;
+        pep = (USBH_EpDescTypeDef *)NULL;
+
+        while ((ep_ix < pif->bNumEndpoints) && (ptr < cfg_desc->wTotalLength))
+        {
+          pdesc = USBH_GetNextDesc((uint8_t *)(void *)pdesc, &ptr);
+
+          if (pdesc->bDescriptorType == USB_DESC_TYPE_ENDPOINT)
+          {
+            /* Check if the endpoint is appartening to an audio streaming interface */
+            if ((pif->bInterfaceClass == 0x01U) && (pif->bInterfaceSubClass == 0x02U))
+            {
+              /* Check if it is supporting the USB AUDIO 01 class specification */
+              if ((pif->bInterfaceProtocol == 0x00U) && (pdesc->bLength != 0x09U))
+              {
+                pdesc->bLength = 0x09U;
+              }
+            }
+            /* Make sure that the endpoint descriptor's bLength is equal to
+               USB_ENDPOINT_DESC_SIZE for all other endpoints types */
+            else if (pdesc->bLength != USB_ENDPOINT_DESC_SIZE)
+            {
+              pdesc->bLength = USB_ENDPOINT_DESC_SIZE;
+            }
+            else
+            {
+              /* ... */
+            }
+
+            pep = &cfg_desc->Itf_Desc[if_ix].Ep_Desc[ep_ix];
+
+            status = USBH_ParseEPDesc(phost, pep, (uint8_t *)(void *)pdesc);
+
+            ep_ix++;
+          }
+        }
+
+        /* Check if the required endpoint(s) data are parsed */
+        if (ep_ix < pif->bNumEndpoints)
+        {
+          return USBH_NOT_SUPPORTED;
+        }
+
+        if_ix++;
+      }
+    }
+
+    /* Check if the required interface(s) data are parsed */
+    if (if_ix < MIN(cfg_desc->bNumInterfaces, (uint8_t)USBH_MAX_NUM_INTERFACES))
+    {
+      return USBH_NOT_SUPPORTED;
+    }
+  }
+
+  return status;
+}
+
+================================================================================================================================
+In the call stack:
+phost->pActiveClass->Init(phost)
+    USBH_VIDEO_InterfaceInit()
+        USBH_VIDEO_FindStreamingIN()
+the endpoint descriptor of the second interface (the VideoStream interface) have wMaxPacketSize == 0.
+There should be some error in interface configuration or descriptor parsing.
+Actually ALL fields of the two endpoints descriptors associated with the VideoStream interface have all fields set to 0.
+I must follow how the interface info is populated.
+
+The first interaction with VIDEO class functions is at usbh_core.c:714, namely the initialization function:
+phost->pActiveClass->Init(phost)
+This init function just parse the interface descriptors as parsed with the STM32_USB_Host_Library.
+So the issue is in the descriptor parsing in the STM32_Host_Library.
+I have increased USBH_MAX_SIZE_CONFIGURATION from 256 to 512.
+
+### Found the problem ###
+The STM32_USB_Host_Library only parses the standard interface descriptors. And for the UVC video
+streaming interfaces, the standard interface descriptor specifies bNumEndpoints=0 and
+bAlternateSetting=0. And since USBH_MAX_NUM_INTERFACES=2, the configuration descriptor parsing
+stops at this interface descriptor, since it is the second one after the video control descriptor.
+Then the class Init function checks for an interface descriptor of class 14 and subclass 2 with
+valid endpoint (e.g. with wMaxPacketSize > 0) which it doesn't find in this parsed interface
+descriptor list.
+
+However, next to this video stream descriptors are also interface descriptors with the same 
+bInterfaceNumber as the standard descriptor of the VideoStream interface.
+
+================================================================================================================================
+To solve device enumuration and initialization problems:
+1- Add the following to MX_USB_HOST_Init() before the last condition:
+if(USBH_RegisterClass(&hUsbHostFS, USBH_VIDEO_CLASS) != USBH_OK)
+  {
+	  Error_Handler();
+  }
+2- In the file USB_HOST/Target/usbh_conf.h modify the following definitions:
+USBH_MAX_NUM_INTERFACES 5U
+USBH_MAX_SIZE_CONFIGURATION 2048U
+These values are determined by inspection of the camera discriptors using lsusb command.
+Check the values of wTotalLength parameters found in different locations in the descriptor. Make sure
+that the config size and the number of interfaces selected can accomodate the wanted configuration.
+3- 

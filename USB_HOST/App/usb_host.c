@@ -60,7 +60,7 @@ static void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id);
 /* USER CODE BEGIN 1 */
 void USB_HOST_camera_process(void)
 {
-//  if (hUsbHostFS.gState == HOST_CLASS)
+  if (hUsbHostFS.gState == HOST_CLASS)
   {
     USBH_VIDEO_Process(&hUsbHostFS);
   }

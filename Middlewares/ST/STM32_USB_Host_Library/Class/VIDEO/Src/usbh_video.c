@@ -47,6 +47,32 @@ volatile uint8_t tmp_packet_framebuffer[UVC_RX_FIFO_SIZE_LIMIT];
 
 
 /**
+ * @Author	Abdulrahman Abu-Askar
+ * @Email	abdulrahman.abuaskar@si.com.sa, a.q.askar@gmail.com
+ * @brief	USBH_VIDEO_populate_VS_endpoints
+ * 			Hard-coding the alternate setting and endpoint information.
+ * 			This function is for the devices with VS
+ * 			interface with bNumEndpoints=0 and bAlternateSetting=0.
+ * 			These parameter values indicate that alternate settings must
+ * 			parsed to get available endpoints corresponding to each
+ * 			alternate setting.
+ */
+void USBH_VIDEO_populate_VS_endpoints(USBH_HandleTypeDef *phost) {
+	USBH_InterfaceDescTypeDef *pif = &phost->device.CfgDesc.Itf_Desc[1];
+
+	pif->bAlternateSetting = 3;
+	pif->bNumEndpoints = 1;
+
+	pif->Ep_Desc[0].bLength = 7;
+	pif->Ep_Desc[0].bDescriptorType = 5;
+	pif->Ep_Desc[0].bEndpointAddress = 0x81;
+	pif->Ep_Desc[0].bmAttributes = 5;
+	pif->Ep_Desc[0].wMaxPacketSize = 512;
+	pif->Ep_Desc[0].bInterval = 1;
+
+}
+
+/**
   * @brief  USBH_VIDEO_InterfaceInit 
   *         The function init the Video class.
   * @param  phost: Host handle
@@ -61,6 +87,9 @@ static USBH_StatusTypeDef USBH_VIDEO_InterfaceInit (USBH_HandleTypeDef *phost)
   
   uint16_t ep_size_in = 0;  
   
+  // Hard-coded population of interface info. Author: Abdulrahman AbuAskar abdulrahman.abuaskar@si.com.sa
+//  USBH_VIDEO_populate_VS_endpoints(phost);
+
   interface = USBH_FindInterface(phost, CC_VIDEO, USB_SUBCLASS_VIDEOCONTROL, 0x00);
   
   if(interface == 0xFF) /* Not Valid Interface */
@@ -135,8 +164,8 @@ static USBH_StatusTypeDef USBH_VIDEO_InterfaceInit (USBH_HandleTypeDef *phost)
                     phost->device.address,
                     phost->device.speed,
                     USB_EP_TYPE_ISOC,
-                    1000);//WARNING!
-                    //VIDEO_Handle->camera.EpSize);//working ok 
+                    //1000);//WARNING!
+                    VIDEO_Handle->camera.EpSize);//working ok
       
       USBH_LL_SetToggle(phost, VIDEO_Handle->camera.Pipe, 0);  
     }
@@ -356,7 +385,12 @@ static USBH_StatusTypeDef USBH_VIDEO_InputStream (USBH_HandleTypeDef *phost)
                             (uint8_t*)tmp_packet_framebuffer,
                             VIDEO_Handle->camera.EpSize,
                             VIDEO_Handle->camera.Pipe);
-      }
+      } /* else if(result == USBH_URB_IDLE) {
+    	  USBH_IsocReceiveData(phost,
+    	                              (uint8_t*)tmp_packet_framebuffer,
+    	                              VIDEO_Handle->camera.EpSize,
+    	                              VIDEO_Handle->camera.Pipe);
+      } */
     break;
     
     default:

@@ -100,9 +100,9 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USB_HOST_Init();
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
+  MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
   // FATFS file initialization
   f_mount(&SDFatFS, SDPath, 1);

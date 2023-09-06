@@ -28,6 +28,8 @@ USBH_StatusTypeDef USBH_VIDEO_FindStreamingIN(USBH_HandleTypeDef *phost)
 
   VIDEO_Handle = (VIDEO_HandleTypeDef *) phost->pActiveClass->pData; 
 
+
+
   // Look For VIDEOSTREAMING IN interface (data FROM camera)
   alt_settings = 0;
   for (interface = 0;  interface < USBH_MAX_NUM_INTERFACES ; interface ++ )
